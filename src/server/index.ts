@@ -2,6 +2,18 @@ import { serve } from "bun";
 import index from "../client/index.html";
 
 const server = serve({
+	fetch(req, server) {
+		if (server.upgrade(req)) {
+			return;
+		}
+
+		return new Response("Update failed", { status: 500 });
+	},
+	websocket: {
+		message(ws, message) {}, // a message is received
+		open(ws) {}, // a socket is opened
+		close(ws, code, message) {}, // a socket is closed
+	},
 	routes: {
 		// Serve index.html for all unmatched routes.
 		"/*": index,
