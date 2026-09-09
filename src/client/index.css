@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+@theme {
+	--color-primary: #7816f4;
+}
+
 @media (prefers-reduced-motion) {
 	*,
 	::before,

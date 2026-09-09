@@ -2,7 +2,7 @@ import "./index.css";
 
 export function App() {
 	return (
-		<div className="text-violet-500">
+		<div className="text-primary">
 			<h1>Project share queue</h1>
 		</div>
 	);

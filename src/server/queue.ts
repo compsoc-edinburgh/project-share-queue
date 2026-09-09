@@ -1,5 +1,4 @@
-// ability to add a person to the queue
-type Nullable<T> = T | null;
+import type { Nullable } from "./types";
 
 type QueueEntry = {
 	id: string;
