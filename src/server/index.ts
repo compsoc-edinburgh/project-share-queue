@@ -1,7 +1,20 @@
 import { serve } from "bun";
 import index from "../client/index.html";
-import { generateSession, getSession, removeSession } from "./session";
-import type { Nullable } from "./types";
+import { getState, join, leave } from "./queue";
+import { userMessageSchema } from "./schema";
+import {
+	checkUser,
+	generateSession,
+	generateUserToken,
+	getSession,
+	removeSession,
+} from "./session";
+import { type Nullable, parse } from "./utils";
+
+type WebsocketData = {
+	sessionId: string;
+	participantId: string;
+};
 
 const invalidateToken = (token: Nullable<string>): Nullable<Response> => {
 	const adminToken = process.env.ADMIN_SESSION_TOKEN;
@@ -19,15 +32,134 @@ const invalidateToken = (token: Nullable<string>): Nullable<Response> => {
 
 const server = serve({
 	fetch(req, server) {
-		if (server.upgrade(req)) {
+		const url = new URL(req.url);
+		const match = /^\/ws\/([^/]+)$/.exec(url.pathname);
+
+		if (!match) {
+			return new Response("Not found", { status: 404 });
+		}
+
+		const sessionId = match[1];
+		const activeSessionId = getSession();
+		if (activeSessionId === null || sessionId !== activeSessionId) {
+			return new Response("Session not found", { status: 404 });
+		}
+
+		const cookies = new Bun.CookieMap(req.headers.get("Cookie") ?? "");
+		const existingToken = cookies.get("queue_session");
+
+		let token: string;
+		const headers = new Headers();
+
+		if (existingToken && checkUser(existingToken)) {
+			token = existingToken;
+		} else {
+			token = generateUserToken();
+
+			headers.set(
+				"Set-Cookie",
+				`queue_session=${token}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=86400`,
+			);
+		}
+
+		const isUpgraded = server.upgrade(req, {
+			headers,
+			data: {
+				sessionId,
+				participantId: token,
+			},
+		});
+
+		if (isUpgraded) {
 			return;
 		}
 
-		return new Response("Update failed", { status: 500 });
+		return new Response("WebSocket upgrade failed", { status: 400 });
 	},
 	websocket: {
-		message(ws, message) {}, // a message is received
-		open(ws) {}, // a socket is opened
+		data: {} as WebsocketData,
+		message(ws, message) {
+			if (typeof message !== "string") {
+				ws.send(
+					JSON.stringify({
+						type: "error",
+						message: "Expected a text message",
+					}),
+				);
+				return;
+			}
+
+			const result = parse(message);
+			if (!result.ok) {
+				ws.send(
+					JSON.stringify({
+						type: "error",
+						message: result.error,
+					}),
+				);
+				return;
+			}
+
+			const { success, data } = userMessageSchema.safeParse(result.data);
+			if (!success) {
+				ws.send(
+					JSON.stringify({
+						type: "error",
+						message: "Invalid Event type",
+					}),
+				);
+				return;
+			}
+
+			if (data.type === "join") {
+				const entry = {
+					id: ws.data.participantId,
+					name: data.name,
+				};
+
+				if (join(entry)) {
+					ws.send(
+						JSON.stringify({
+							type: "queue",
+							entries: getState(),
+						}),
+					);
+					return;
+				}
+
+				ws.send(
+					JSON.stringify({
+						type: "error",
+						message: "Already joined",
+					}),
+				);
+			} else {
+				if (leave(ws.data.participantId)) {
+					ws.send(
+						JSON.stringify({
+							type: "queue",
+							entries: getState(),
+						}),
+					);
+					return;
+				}
+
+				ws.send(
+					JSON.stringify({
+						type: "error",
+						message: "You are not part of the queue",
+					}),
+				);
+			}
+		},
+		open(ws) {
+			ws.send(
+				JSON.stringify({
+					type: "queue",
+					entries: getState(),
+				}),
+			);
+		},
 		close(ws, code, message) {}, // a socket is closed
 	},
 	routes: {

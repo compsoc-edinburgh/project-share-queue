@@ -1,6 +1,18 @@
-import type { Nullable } from "./types";
+import type { Nullable } from "./utils";
 
 let session: string | null = null;
+const users: Set<string> = new Set();
+
+function checkUser(id: string): boolean {
+	return users.has(id);
+}
+
+function generateUserToken(): string {
+	const userId = crypto.randomUUID();
+	users.add(userId);
+
+	return userId;
+}
 
 function generateSession(): string {
 	const sessionId = crypto.randomUUID();
@@ -18,4 +30,10 @@ function removeSession() {
 	session = null;
 }
 
-export { generateSession, getSession, removeSession };
+export {
+	checkUser,
+	generateSession,
+	generateUserToken,
+	getSession,
+	removeSession,
+};
